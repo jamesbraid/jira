@@ -1,0 +1,100 @@
+#!/usr/bin/perl
+#
+
+use strict;
+use Data::Dumper;
+use RT::Client::REST;
+use JSON;
+use Time::Piece;
+
+my $rt = RT::Client::REST->new(server => 'http://rt');
+$rt->login(username => undef, password => undef) or die "login fail";
+
+sub map_datetime {
+    my $datetime = shift;
+    my $t = Time::Piece->strptime($datetime, "%a %b %d %T %Y")->datetime;
+}
+sub map_datetime2 {
+    my $datetime = shift;
+    my $t = Time::Piece->strptime($datetime, "%Y-%m-%d %T")->datetime;
+}
+
+my $ticket_map = {
+    Priority    => 'priority',
+#    Description => first transaction,
+    Status      => 'status',
+    Reporter    => 'creator',
+    Cc          => 'watchers',
+    Created     => 'created',
+    LastUpdated => 'updated',
+    Subject     => 'summary',
+    Owner       => 'assignee',
+};
+
+my $status_map = {
+    'new'       => 'Open',
+    'open'      => 'In Progress',
+    'resolved'  => 'Closed',
+};
+
+
+my @ids = $rt->search(
+    type    => 'ticket',
+    query   => 'Queue="tech-systems"',
+);
+
+#print Dumper \@ids;
+
+my @json_issues;
+foreach my $id (@ids) {
+    print "doing $id\n";
+    my @ticket_txns;
+    my $ticket = $rt->show(type => 'ticket', id => $id);
+    # dump all our transactions into an array
+    my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Comment', 'Correspond' ]);
+    print Dumper \@txns;
+    foreach (@txns) {
+        push @ticket_txns, $rt->get_transaction(parent_id => $id, id => $_);
+    }
+
+    print Dumper $ticket;
+
+    my $json_ticket = {};
+    while (my ($key, $value) = each %$ticket) {
+        if (defined $ticket_map->{$key}) {
+            if ($value =~ /\d+:\d+:\d+.*20\d+/) {
+                $json_ticket->{$ticket_map->{$key}} = map_datetime($value);
+            } elsif ($key eq 'Status') {
+                $json_ticket->{$ticket_map->{$key}} = $status_map->{$value};
+            } else {
+                $json_ticket->{$ticket_map->{$key}} = $value;
+            }
+        }
+    }
+    $json_ticket->{externalId} = $id;
+    $json_ticket->{watchers} = [];
+    $json_ticket->{description} = @ticket_txns[0]->{Content};
+    foreach my $txn (@ticket_txns) {
+        next unless ($txn->{Type} eq 'Comment' || $txn->{Type} eq 'Correspond');
+
+        my $json_comment = {
+            body    => $txn->{Content},
+            author  => $txn->{Creator},
+            created => map_datetime2($txn->{Created}),
+        };
+        push @{$json_ticket->{comments}}, $json_comment;
+    }
+    push @json_issues, $json_ticket;
+    last;
+}
+my $json = {
+    projects => [
+        {
+            name => 'techsys',
+            key => 'SYS',
+            issues => \@json_issues,
+        }
+    ]
+};
+#print Dumper \@json_issues;
+print encode_json($json);
