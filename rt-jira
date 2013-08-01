@@ -5,25 +5,33 @@ use strict;
 use Data::Dumper;
 use RT::Client::REST;
 use JSON;
-use Time::Piece;
+#use Time::Piece;
+use DateTime::Format::Strptime qw(strptime);
+use File::Slurp;
 
+my $filename = $ARGV[0];
 my $rt = RT::Client::REST->new(server => 'http://rt');
 $rt->login(username => undef, password => undef) or die "login fail";
 
+# rad, two date formats out of RT::Client::REST... should just use the real RT API
 sub map_datetime {
     my $datetime = shift;
-    my $t = Time::Piece->strptime($datetime, "%a %b %d %T %Y")->datetime;
+    #my $t = Time::Piece->strptime($datetime, "%a %b %d %T %Y")->datetime;
+    my $t = strptime("%a %b %d %T %Y", $datetime)->iso8601;
+    return $t;
 }
 sub map_datetime2 {
     my $datetime = shift;
-    my $t = Time::Piece->strptime($datetime, "%Y-%m-%d %T")->datetime;
+    #my $t = Time::Piece->strptime($datetime, "%Y-%m-%d %T")->datetime;
+    my $t = strptime("%Y-%m-%d %T", $datetime)->iso8601;
+    return $t;
 }
 
 my $ticket_map = {
-    Priority    => 'priority',
+#    Priority    => 'priority',
 #    Description => first transaction,
     Status      => 'status',
-    Reporter    => 'creator',
+    Creator     => 'reporter',
     Cc          => 'watchers',
     Created     => 'created',
     LastUpdated => 'updated',
@@ -34,13 +42,13 @@ my $ticket_map = {
 my $status_map = {
     'new'       => 'Open',
     'open'      => 'In Progress',
-    'resolved'  => 'Closed',
+    'resolved'  => 'Resolved',
 };
 
 
 my @ids = $rt->search(
     type    => 'ticket',
-    query   => 'Queue="tech-systems"',
+    query   => 'Queue="tech"',
 );
 
 #print Dumper \@ids;
@@ -52,12 +60,12 @@ foreach my $id (@ids) {
     my $ticket = $rt->show(type => 'ticket', id => $id);
     # dump all our transactions into an array
     my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Comment', 'Correspond' ]);
-    print Dumper \@txns;
+    #print Dumper \@txns;
     foreach (@txns) {
         push @ticket_txns, $rt->get_transaction(parent_id => $id, id => $_);
     }
 
-    print Dumper $ticket;
+    #print Dumper $ticket;
 
     my $json_ticket = {};
     while (my ($key, $value) = each %$ticket) {
@@ -66,6 +74,7 @@ foreach my $id (@ids) {
                 $json_ticket->{$ticket_map->{$key}} = map_datetime($value);
             } elsif ($key eq 'Status') {
                 $json_ticket->{$ticket_map->{$key}} = $status_map->{$value};
+                $json_ticket->{resolution} = 'Fixed' if ($value eq 'resolved');
             } else {
                 $json_ticket->{$ticket_map->{$key}} = $value;
             }
@@ -85,16 +94,16 @@ foreach my $id (@ids) {
         push @{$json_ticket->{comments}}, $json_comment;
     }
     push @json_issues, $json_ticket;
-    last;
 }
 my $json = {
     projects => [
         {
-            name => 'techsys',
-            key => 'SYS',
+            name => 'Tech import test',
+            key => 'TEST',
             issues => \@json_issues,
         }
     ]
 };
 #print Dumper \@json_issues;
-print encode_json($json);
+#print encode_json($json);
+write_file($filename, encode_json($json));
