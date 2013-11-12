@@ -59,7 +59,8 @@ foreach my $id (@ids) {
     my @ticket_txns;
     my $ticket = $rt->show(type => 'ticket', id => $id);
     # dump all our transactions into an array
-    my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Comment', 'Correspond' ]);
+    #my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Comment', 'Correspond' ]);
+    my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Correspond' ]);
     #print Dumper \@txns;
     foreach (@txns) {
         push @ticket_txns, $rt->get_transaction(parent_id => $id, id => $_);
@@ -84,7 +85,8 @@ foreach my $id (@ids) {
     $json_ticket->{watchers} = [];
     $json_ticket->{description} = @ticket_txns[0]->{Content};
     foreach my $txn (@ticket_txns) {
-        next unless ($txn->{Type} eq 'Comment' || $txn->{Type} eq 'Correspond');
+        #next unless ($txn->{Type} eq 'Comment' || $txn->{Type} eq 'Correspond');
+        next unless ($txn->{Type} eq 'Correspond');
 
         my $json_comment = {
             body    => $txn->{Content},
@@ -98,8 +100,8 @@ foreach my $id (@ids) {
 my $json = {
     projects => [
         {
-            name => 'Tech import test',
-            key => 'TEST',
+            name => 'TEST Tech',
+            key => 'TT',
             issues => \@json_issues,
         }
     ]
