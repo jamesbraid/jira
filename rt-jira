@@ -8,7 +8,22 @@ use JSON;
 #use Time::Piece;
 use DateTime::Format::Strptime qw(strptime);
 use File::Slurp;
+use lib qw(/tools/SITE/perl);
+use dnutil qw(getUserInfo);
 
+my $user_map = {
+    'hh@dneg.asia'  => 'hh',
+};
+
+my $priority_map = {
+    5   =>  'Minor',
+    3   =>  'Major',
+    2   =>  'Critical',
+    1   =>  'Blocker',
+};
+
+
+my %useri = getUserInfo();
 my $filename = $ARGV[0];
 my $rt = RT::Client::REST->new(server => 'http://rt');
 $rt->login(username => undef, password => undef) or die "login fail";
@@ -27,9 +42,24 @@ sub map_datetime2 {
     return $t;
 }
 
+# rt-importer is a special user to who we will assign all the missing users to
+sub map_user {
+    my $username = shift;
+    return $user_map->{$username} if (exists $user_map->{$username});
+    return $username if (exists $useri{$username});
+    return 'rt-importer';
+}
+
+# undef priority = minor = normal
+sub map_priority {
+    my $priority = shift;
+    return $priority_map->{$priority} if (exists $priority_map->{$priority});
+    return 'Minor';
+}
+
 my $ticket_map = {
-#    Priority    => 'priority',
 #    Description => first transaction,
+    Priority    => 'priority',
     Status      => 'status',
     Creator     => 'reporter',
     Cc          => 'watchers',
@@ -76,6 +106,10 @@ foreach my $id (@ids) {
             } elsif ($key eq 'Status') {
                 $json_ticket->{$ticket_map->{$key}} = $status_map->{$value};
                 $json_ticket->{resolution} = 'Fixed' if ($value eq 'resolved');
+            } elsif ($key eq 'Owner') {
+                $json_ticket->{$ticket_map->{$key}} = map_user($value);
+            } elsif ($key eq 'Priority') {
+                $json_ticket->{$ticket_map->{$key}} = map_priority($value);
             } else {
                 $json_ticket->{$ticket_map->{$key}} = $value;
             }
