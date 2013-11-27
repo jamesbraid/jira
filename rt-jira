@@ -10,6 +10,8 @@ use DateTime::Format::Strptime qw(strptime);
 use File::Slurp;
 use lib qw(/tools/SITE/perl);
 use dnutil qw(getUserInfo);
+use Devel::Timer;
+my $t = Devel::Timer->new();
 
 my $user_map = {
     'hh@dneg.asia'  => 'hh',
@@ -22,9 +24,12 @@ my $priority_map = {
     1   =>  'Blocker',
 };
 
-
-my %useri = getUserInfo();
 my $filename = $ARGV[0];
+
+$t->mark('begin getUserInfo');
+my %useri = getUserInfo();
+
+$t->mark('login to RT');
 my $rt = RT::Client::REST->new(server => 'http://rt');
 $rt->login(username => undef, password => undef) or die "login fail";
 
@@ -76,6 +81,7 @@ my $status_map = {
 };
 
 
+$t->mark('RT search');
 my @ids = $rt->search(
     type    => 'ticket',
     query   => 'Queue="tech"',
@@ -83,9 +89,12 @@ my @ids = $rt->search(
 
 #print Dumper \@ids;
 
+$t->mark('start processing tickets');
 my @json_issues;
+my $count = 0;
 foreach my $id (@ids) {
     print "doing $id\n";
+    $t->mark('processing a ticket');
     my @ticket_txns;
     my $ticket = $rt->show(type => 'ticket', id => $id);
     # dump all our transactions into an array
@@ -138,7 +147,12 @@ foreach my $id (@ids) {
         push @{$json_ticket->{comments}}, $json_comment;
     }
     push @json_issues, $json_ticket;
+    #print Dumper $json_ticket;
+    $t->mark('end processing a ticket');
+    $count++;
+#    last if ($count == 200);
 }
+$t->mark('end processing tickets');
 my $json = {
     projects => [
         {
@@ -151,3 +165,6 @@ my $json = {
 #print Dumper \@json_issues;
 #print encode_json($json);
 write_file($filename, encode_json($json));
+
+$t->mark('END');
+$t->report(collapse => 1);
