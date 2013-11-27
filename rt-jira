@@ -13,8 +13,25 @@ use dnutil qw(getUserInfo);
 use Devel::Timer;
 my $t = Devel::Timer->new();
 
-my $user_map = {
-    'hh@dneg.asia'  => 'hh',
+
+my $ticket_map = {
+#    Description => first transaction,
+    Priority    => 'priority',
+    Status      => 'status',
+    Creator     => 'reporter',
+    Cc          => 'watchers',
+    Created     => 'created',
+    LastUpdated => 'updated',
+    Subject     => 'summary',
+    Owner       => 'assignee',
+#    'CF.{Show}' => '
+};
+
+my $status_map = {
+    'new'       => 'Open',
+    'open'      => 'In Progress',
+    'resolved'  => 'Resolved',
+    'rejected'  => 'Rejected',
 };
 
 my $priority_map = {
@@ -50,8 +67,10 @@ sub map_datetime2 {
 # rt-importer is a special user to who we will assign all the missing users to
 sub map_user {
     my $username = shift;
-    return $user_map->{$username} if (exists $user_map->{$username});
+    $username =~ s/\@dneg.*$//;
+    #return $user_map->{$username} if (exists $user_map->{$username});
     return $username if (exists $useri{$username});
+    print " mapping $username to nobody\n";
     return 'rt-importer';
 }
 
@@ -62,23 +81,16 @@ sub map_priority {
     return 'Minor';
 }
 
-my $ticket_map = {
-#    Description => first transaction,
-    Priority    => 'priority',
-    Status      => 'status',
-    Creator     => 'reporter',
-    Cc          => 'watchers',
-    Created     => 'created',
-    LastUpdated => 'updated',
-    Subject     => 'summary',
-    Owner       => 'assignee',
-};
+# turn RT cc field into watcher field
+sub map_cc {
+    my $cc = shift;
+    my @watchers;
+    foreach my $email (split /,\s+/, $cc) {
+        push @watchers, map_user($email);
+    }
+    return [ grep { !/rt-importer/ } @watchers ]; 
+}
 
-my $status_map = {
-    'new'       => 'Open',
-    'open'      => 'In Progress',
-    'resolved'  => 'Resolved',
-};
 
 
 $t->mark('RT search');
@@ -106,6 +118,7 @@ foreach my $id (@ids) {
     }
 
     #print Dumper $ticket;
+    #exit;
 
     my $json_ticket = {};
     while (my ($key, $value) = each %$ticket) {
@@ -115,7 +128,9 @@ foreach my $id (@ids) {
             } elsif ($key eq 'Status') {
                 $json_ticket->{$ticket_map->{$key}} = $status_map->{$value};
                 $json_ticket->{resolution} = 'Fixed' if ($value eq 'resolved');
-            } elsif ($key eq 'Owner') {
+#            } elsif ($key eq 'Owner') {
+#                $json_ticket->{$ticket_map->{$key}} = map_user($value);
+            } elsif ($key eq 'Creator') {
                 $json_ticket->{$ticket_map->{$key}} = map_user($value);
             } elsif ($key eq 'Priority') {
                 $json_ticket->{$ticket_map->{$key}} = map_priority($value);
@@ -126,8 +141,10 @@ foreach my $id (@ids) {
     }
     $json_ticket->{issueType} = 'Bug';
     $json_ticket->{externalId} = $id;
-    $json_ticket->{watchers} = [];
+    $json_ticket->{watchers} = map_cc($ticket->{Cc});
     $json_ticket->{description} = @ticket_txns[0]->{Content};
+
+    $json_ticket->{summary} = 'No subject' if ($json_ticket->{summary} =~ /^(\s+)?$/);
 
     push @{$json_ticket->{customFieldValues}}, { 
         fieldName => 'Show Code', 
