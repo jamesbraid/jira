@@ -84,7 +84,7 @@ my $status_map = {
 $t->mark('RT search');
 my @ids = $rt->search(
     type    => 'ticket',
-    query   => 'Queue="tech"',
+    query   => 'Queue="tech" or Queue="tech-run"',
 );
 
 #print Dumper \@ids;
@@ -157,8 +157,8 @@ my $json = {
     projects => [
         {
             name => 'TEST Tech',
-            key => 'TT',
-            issues => \@json_issues,
+            key => 'TEST',
+            issues => [ sort { $a->{externalId} <=> $b->{externalId} } @json_issues ],
         }
     ]
 };
