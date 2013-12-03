@@ -1,6 +1,7 @@
 #!/usr/bin/perl
 #
 
+$| = 1;
 use strict;
 use Data::Dumper;
 use RT::Client::REST;
@@ -13,6 +14,27 @@ use dnutil qw(getUserInfo);
 use Devel::Timer;
 my $t = Devel::Timer->new();
 
+my $tech_users = {
+    bja => 1,
+    cdt => 1,
+    cp  => 1,
+    dmm => 1,
+    ges => 1,
+    jdg => 1,
+    josef => 1,
+    rav => 1,
+    rol => 1,
+    taz => 1,
+    # ex-RND
+    wh  => 1,
+    bg  => 1,
+    joe => 1,
+};
+
+my $user_map = {
+    jeff    => 'jbc',
+    steve   => 'srl',
+};
 
 my $ticket_map = {
 #    Description => first transaction,
@@ -68,7 +90,8 @@ sub map_datetime2 {
 sub map_user {
     my $username = shift;
     $username =~ s/\@dneg.*$//;
-    #return $user_map->{$username} if (exists $user_map->{$username});
+    return $user_map->{$username} if (exists $user_map->{$username});
+    return $username if (exists $tech_users->{$username});
     return $username if (exists $useri{$username});
     print " mapping $username to nobody\n";
     return 'rt-importer';
@@ -104,6 +127,7 @@ my @ids = $rt->search(
 $t->mark('start processing tickets');
 my @json_issues;
 my $count = 0;
+print "found $#ids tickets to work on\n";
 foreach my $id (@ids) {
     print "doing $id\n";
     $t->mark('processing a ticket');
