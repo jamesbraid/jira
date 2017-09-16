@@ -150,11 +150,11 @@ foreach my $id (@ids) {
 
     $json_ticket->{summary} = 'No subject' if ($json_ticket->{summary} =~ /^(\s+)?$/);
 
-    push @{$json_ticket->{customFieldValues}}, { 
-        fieldName => 'Show Code', 
-        fieldType => 'com.atlassian.jira.plugin.system.customfieldtypes:labels',
-        value => [ $ticket->{'CF.{Show}'} ] 
-    };
+#     push @{$json_ticket->{customFieldValues}}, {
+#         fieldName => 'Show Code',
+#         fieldType => 'com.atlassian.jira.plugin.system.customfieldtypes:labels',
+#         value => [ $ticket->{'CF.{Show}'} ]
+#     };
 
     foreach my $txn (@ticket_txns) {
         #next unless ($txn->{Type} eq 'Comment' || $txn->{Type} eq 'Correspond');
