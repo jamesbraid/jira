@@ -115,17 +115,14 @@ foreach my $id (@ids) {
     print "doing $id\n";
     $t->mark('processing a ticket');
     my @ticket_txns;
+    $t->mark('fetch ticket info');
     my $ticket = $rt->show(type => 'ticket', id => $id);
     # dump all our transactions into an array
-    #my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Comment', 'Correspond' ]);
     my @txns = $rt->get_transaction_ids(parent_id => $id, transaction_type => [ 'Create', 'Correspond' ]);
-    #print Dumper \@txns;
     foreach (@txns) {
         push @ticket_txns, $rt->get_transaction(parent_id => $id, id => $_);
     }
-
-    #print Dumper $ticket;
-    #exit;
+    $t->mark('end fetch ticket info');
 
     my $json_ticket = {};
     while (my ($key, $value) = each %$ticket) {
