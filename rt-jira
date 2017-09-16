@@ -10,7 +10,19 @@ use JSON;
 use DateTime::Format::Strptime qw(strptime);
 use File::Slurp;
 use Devel::Timer;
+use Getopt::Long;
 my $t = Devel::Timer->new();
+
+my $OPT = {};
+GetOptions($OPT,
+        'rt-url=s',
+        'rt-user=s',
+        'rt-pass=s',
+        'rt-query=s',
+        'jira-project-name=s',
+        'jira-project-key=s',
+        'filename=s',
+) or die "options parsing failed: $!";
 
 my $user_map = {
     user1   => 'user2',
@@ -42,12 +54,9 @@ my $priority_map = {
     1   =>  'Blocker',
 };
 
-my $filename = $ARGV[0];
-
-
 $t->mark('login to RT');
-my $rt = RT::Client::REST->new(server => 'http://rt');
-$rt->login(username => undef, password => undef) or die "login fail";
+my $rt = RT::Client::REST->new(server => $OPT->{'rt-url'});
+$rt->login(username => $OPT->{'rt-user'}, password => $OPT->{'rt-pass'}) or die "login fail";
 
 # rad, two date formats out of RT::Client::REST... should just use the real RT API
 sub map_datetime {
@@ -93,8 +102,8 @@ sub map_cc {
 $t->mark('RT search');
 my @ids = $rt->search(
     type    => 'ticket',
-    query   => 'Queue="tech" or Queue="tech-run"',
-);
+    query   => $OPT->{'rt-query'},
+) or die "no results found";
 
 #print Dumper \@ids;
 
@@ -171,15 +180,15 @@ $t->mark('end processing tickets');
 my $json = {
     projects => [
         {
-            name => 'TEST Tech',
-            key => 'TEST',
+            name => $OPT->{'jira-project-name'},
+            key => $OPT->{'jira-project-key'},
             issues => [ sort { $a->{externalId} <=> $b->{externalId} } @json_issues ],
         }
     ]
 };
 #print Dumper \@json_issues;
 #print encode_json($json);
-write_file($filename, encode_json($json));
+write_file($OPT->{filename}, encode_json($json));
 
 $t->mark('END');
 $t->report(collapse => 1);
