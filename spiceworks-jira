@@ -1,0 +1,172 @@
+#!/usr/bin/perl
+#
+# spiceworks-jira
+# James Braid <jamesb@loreland.org>
+# Convert a Spiceworks JSON export to a JIRA compatible import
+# 
+
+$| = 1;
+use strict;
+use Data::Dumper;
+use JSON;
+#use Time::Piece;
+use DateTime::Format::Strptime qw(strptime);
+use File::Slurp;
+use Devel::Timer;
+use Getopt::Long;
+my $t = Devel::Timer->new();
+
+my $OPT = {};
+GetOptions($OPT,
+        'spiceworks=s',
+        'jira-project-name=s',
+        'jira-project-key=s',
+        'filename=s',
+) or die "options parsing failed: $!";
+
+die "no spiceworks import file" unless ($OPT->{spiceworks});
+die "no JIRA project name" unless ($OPT->{'jira-project-name'});
+die "no JIRA project key" unless ($OPT->{'jira-project-key'});
+die "no output filename" unless ($OPT->{filename});
+
+my $user_map = undef;
+
+my $status_map = {
+    'open'      => 'In Progress',
+    'closed'    => 'Resolved',
+};
+
+my $priority_map = {
+    1   =>  'High',
+    2   =>  'Medium',
+    3   =>  'Low',
+};
+
+sub map_user {
+    die "user map not setup" if (!$user_map);
+    my $user_id = shift;
+    return $user_map->{$user_id};
+}
+
+sub map_status {
+    my $status = shift;
+    return $status_map->{$status};
+}
+
+# undef priority = minor = normal
+sub map_priority {
+    my $priority = shift;
+    return $priority_map->{$priority} if (exists $priority_map->{$priority});
+    return 'Medium';
+}
+
+# users are returned as emails but JIRA users are usernames
+sub email_to_username {
+    my $username = shift;
+    $username =~ s/\@.*$//;
+    return $user_map->{$username} if (exists $user_map->{$username});
+    return $username;
+}
+
+# parse a Spiceworks import file into a perl structure
+sub parse_spiceworks {
+    my $file = read_file($OPT->{spiceworks}) or die "couldn't open file!";
+    my $spice = decode_json($file);
+
+    return $spice;
+}
+
+# build Spiceworks ID -> JIRA username map
+sub build_user_map {
+    my $spice = shift;
+    my $users_by_id = {};
+
+    die "no users list found in spiceworks data" unless ($spice->{users});
+
+    foreach my $user (@{$spice->{users}}) {
+        $users_by_id->{$user->{import_id}} = email_to_username($user->{email});
+    }
+
+    return $users_by_id;
+}
+
+# convert a list of Spiceworks tickets to JIRA tickets
+sub build_jira_tickets {
+    my $spice = shift;
+    my $jira_tickets = [];
+
+    foreach my $ticket (@{$spice->{tickets}}) {
+        my $j = build_jira_ticket($ticket);
+        push @$jira_tickets, $j;
+    }
+
+    return $jira_tickets;
+}
+
+# convert a single Spiceworks ticket to a JIRA ticket
+sub build_jira_ticket {
+    my $s = shift;
+    my $j = {};
+
+    $j->{assignee} = map_user($s->{assigned_to});
+    $j->{created} = $s->{created_at};
+    $j->{creator} = map_user($s->{created_by});
+    $j->{reporter} = map_user($s->{created_by});
+    $j->{priority} = map_priority($s->{priority});
+    $j->{status} = map_status($s->{status});
+    $j->{summary} = $s->{summary};
+    $j->{updated} = $s->{updated_at};
+    $j->{description} = $s->{description};
+    $j->{comments} = build_jira_comments($s->{Comments});
+    $j->{externalId} = $s->{import_id};
+
+    return $j;
+}
+
+# build JIRA comments from Spiceworks comments
+sub build_jira_comments {
+    my $s = shift;
+    my $j = [];
+
+    # skip internal comments, no way to mark as internal in JIRA JSON
+    # https://community.atlassian.com/t5/Jira-questions/How-to-import-comments-properties-or-visibility-with-Jira-Json/qaq-p/773284
+    foreach my $comment (@$s) {
+        next unless ($comment->{is_public} eq 'true');
+        my $jc = {};
+        $jc->{body} = $comment->{body};
+        $jc->{author} = map_user($comment->{created_by});
+        $jc->{created} = $comment->{created_at};
+        push @$j, $jc;
+    }
+    return $j;
+}
+
+# build JIRA JSON import string
+sub build_jira_json { 
+    my $spice = shift;
+    my $jira_tickets = build_jira_tickets($spice);
+    my $jira = {
+        projects => [
+            {
+                name => $OPT->{'jira-project-name'},
+                key => $OPT->{'jira-project-key'},
+                issues => [ sort { $a->{externalId} <=> $b->{externalId} } @$jira_tickets ],
+            }
+        ]
+    };
+    return $jira;
+}
+
+# do it - parse Spiceworks, convert to JIRA, and write out to disk
+$t->mark('start parsing Spiceworks JSON');
+my $spice = parse_spiceworks();
+$t->mark('build Spiceworks user map');
+$user_map = build_user_map($spice);
+$t->mark('build JIRA JSON');
+my $jira = build_jira_json($spice);
+$t->mark('write JSON to disk');
+write_file($OPT->{filename}, encode_json($jira));
+$t->mark('END');
+$t->report(collapse => 1);
+
+exit; 
